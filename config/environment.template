@@ -1,0 +1,177 @@
+# ============================================================
+# Bedtime Story Generator - Environment Configuration Template
+# ============================================================
+# Instructions:
+# 1. Copy this file to .env (or configure directly in n8n)
+# 2. Fill in all the required values
+# 3. NEVER commit the .env file to git (it's in .gitignore)
+# ============================================================
+
+# ============================================================
+# TELEGRAM BOT CONFIGURATION
+# ============================================================
+# How to get:
+# 1. Open Telegram and search for @BotFather
+# 2. Send /newbot and follow the instructions
+# 3. Copy the bot token provided
+# ============================================================
+
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
+TELEGRAM_BOT_USERNAME=your_bot_username_here
+
+# ============================================================
+# ANTHROPIC (CLAUDE) API CONFIGURATION
+# ============================================================
+# How to get:
+# 1. Go to https://console.anthropic.com/
+# 2. Sign up or log in
+# 3. Go to API Keys section
+# 4. Create a new API key
+# ============================================================
+
+ANTHROPIC_API_KEY=sk-ant-your-api-key-here
+
+# Claude API Settings
+CLAUDE_MODEL=claude-3-5-sonnet-20241022
+CLAUDE_MAX_TOKENS=1024
+CLAUDE_TEMPERATURE=0.7
+
+# ============================================================
+# SUPABASE DATABASE CONFIGURATION
+# ============================================================
+# How to get:
+# 1. Go to https://supabase.com/
+# 2. Create a new project
+# 3. Go to Settings > API
+# 4. Copy the URL and service_role key (NOT anon key)
+# ============================================================
+
+SUPABASE_URL=https://your-project-id.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
+
+# Alternative: PostgreSQL connection string (if not using Supabase client)
+# DATABASE_URL=postgresql://user:password@host:5432/database
+
+# ============================================================
+# N8N CONFIGURATION
+# ============================================================
+# Webhook URL where Telegram will send updates
+# Format: https://your-n8n-instance.com/webhook/story-bot
+# ============================================================
+
+N8N_WEBHOOK_URL=https://your-n8n-instance.com/webhook/story-bot
+N8N_WEBHOOK_PATH=/webhook/story-bot
+
+# n8n Instance URL (for management)
+N8N_BASE_URL=https://your-n8n-instance.com
+
+# ============================================================
+# IMAGE GENERATION (OPTIONAL)
+# ============================================================
+# Only needed if you want to generate story illustrations
+# Choose ONE of the following options:
+# ============================================================
+
+# Option 1: Stable Diffusion API
+STABLE_DIFFUSION_API_KEY=your_sd_api_key_here
+STABLE_DIFFUSION_API_URL=https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image
+
+# Option 2: DALL-E (OpenAI)
+# OPENAI_API_KEY=sk-your-openai-key-here
+# DALLE_MODEL=dall-e-3
+
+# Option 3: Midjourney API
+# MIDJOURNEY_API_KEY=your_mj_api_key_here
+
+# Image Generation Settings
+ENABLE_IMAGE_GENERATION=false
+IMAGE_STYLE=child-friendly, whimsical, warm colors
+
+# ============================================================
+# APPLICATION SETTINGS
+# ============================================================
+
+# Rate Limiting
+MAX_STORIES_PER_HOUR=5
+MAX_STORIES_PER_DAY=20
+RATE_LIMIT_ENABLED=true
+
+# Story Generation Settings
+DEFAULT_STORY_LENGTH=medium
+MIN_STORY_SENTENCES=6
+MAX_STORY_SENTENCES=8
+
+# Data Retention
+CONVERSATION_RETENTION_DAYS=7
+STORY_RETENTION_DAYS=90
+
+# ============================================================
+# SECURITY SETTINGS
+# ============================================================
+
+# Telegram Webhook Secret (optional but recommended)
+# Generate with: openssl rand -hex 32
+TELEGRAM_WEBHOOK_SECRET=your_webhook_secret_here
+
+# Allowed Telegram User IDs (optional - leave empty for public bot)
+# Comma-separated list of user IDs that can use the bot
+# ALLOWED_USER_IDS=123456789,987654321
+
+# ============================================================
+# MONITORING & LOGGING
+# ============================================================
+
+# Log Level (debug, info, warn, error)
+LOG_LEVEL=info
+
+# Sentry Error Tracking (optional)
+# SENTRY_DSN=https://your-sentry-dsn-here
+
+# Analytics (optional)
+# ANALYTICS_ENABLED=false
+# MIXPANEL_TOKEN=your_mixpanel_token_here
+
+# ============================================================
+# DEVELOPMENT / TESTING
+# ============================================================
+
+# Environment
+NODE_ENV=production
+
+# Enable test mode (doesn't consume API credits)
+TEST_MODE=false
+
+# Mock responses for testing
+MOCK_CLAUDE_RESPONSES=false
+
+# ============================================================
+# COST TRACKING
+# ============================================================
+
+# Claude API Pricing (update based on current pricing)
+CLAUDE_COST_PER_1K_INPUT_TOKENS=0.003
+CLAUDE_COST_PER_1K_OUTPUT_TOKENS=0.015
+
+# Budget Alerts
+DAILY_BUDGET_USD=10.00
+MONTHLY_BUDGET_USD=300.00
+ALERT_EMAIL=your-email@example.com
+
+# ============================================================
+# BACKUP & DISASTER RECOVERY
+# ============================================================
+
+# Database Backup Settings
+ENABLE_AUTO_BACKUP=true
+BACKUP_FREQUENCY_HOURS=24
+BACKUP_RETENTION_DAYS=30
+
+# ============================================================
+# NOTES
+# ============================================================
+# - All sensitive values should be treated as secrets
+# - Rotate API keys regularly (every 90 days recommended)
+# - Monitor usage and costs daily during initial deployment
+# - Test with a few users before public launch
+# - Keep this template updated as you add new features
+# ============================================================
