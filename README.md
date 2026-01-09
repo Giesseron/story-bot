@@ -79,9 +79,10 @@ Detailed setup instructions available in [docs/SETUP.md](docs/SETUP.md)
    ```
 
 5. **Set up n8n workflow**
-   - Import workflow (coming in Phase 2)
+   - Import workflows from `n8n-workflows/` directory
+   - Follow [docs/N8N_DEPLOYMENT.md](docs/N8N_DEPLOYMENT.md)
    - Add credentials
-   - Activate workflow
+   - Activate workflows
 
 6. **Test the bot**
    - Open Telegram
@@ -93,25 +94,32 @@ Detailed setup instructions available in [docs/SETUP.md](docs/SETUP.md)
 ```
 story-bot/
 ├── database/
-│   └── schema.sql              # Complete PostgreSQL schema
+│   └── schema.sql                       # Complete PostgreSQL schema
 ├── config/
-│   └── environment.template    # Environment variables template
+│   └── environment.template             # Environment variables template
 ├── docs/
-│   ├── SETUP.md               # Detailed setup guide
-│   ├── TELEGRAM_SETUP.md      # Telegram bot configuration
-│   └── ARCHITECTURE.md        # Technical architecture details
+│   ├── SETUP.md                        # Detailed setup guide
+│   ├── TELEGRAM_SETUP.md               # Telegram bot configuration
+│   ├── ARCHITECTURE.md                 # Technical architecture details
+│   ├── GITHUB_SETUP.md                 # GitHub connection guide
+│   ├── N8N_DEPLOYMENT.md               # n8n workflow deployment
+│   └── TESTING_GUIDE.md                # Testing and validation guide
 ├── n8n-workflows/
-│   └── (workflow files - coming in Phase 2)
-├── .gitignore                 # Git ignore rules
-├── CLAUDE.md                  # AI assistant project rules
-└── README.md                  # This file
+│   ├── story-bot-main-workflow.json    # Main conversation workflow
+│   └── story-bot-error-handler.json    # Error handling workflow
+├── .gitignore                          # Git ignore rules
+├── CLAUDE.md                           # AI assistant project rules
+└── README.md                           # This file
 ```
 
 ## 📚 Documentation
 
 - **[Setup Guide](docs/SETUP.md)** - Complete installation instructions
 - **[Telegram Setup](docs/TELEGRAM_SETUP.md)** - Bot configuration guide
+- **[n8n Deployment](docs/N8N_DEPLOYMENT.md)** - Workflow deployment guide
+- **[Testing Guide](docs/TESTING_GUIDE.md)** - Testing and validation procedures
 - **[Architecture](docs/ARCHITECTURE.md)** - Technical design and decisions
+- **[GitHub Setup](docs/GITHUB_SETUP.md)** - Repository connection guide
 - **[Database Schema](database/schema.sql)** - Database structure and functions
 
 ## 💰 Cost Estimate

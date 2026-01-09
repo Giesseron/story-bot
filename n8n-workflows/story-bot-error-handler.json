@@ -1,0 +1,175 @@
+{
+  "name": "Telegram Story Bot - Error Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerOn": "specificWorkflow",
+        "workflowId": "={{ $workflow.id }}"
+      },
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract error details and user information\nconst error = $input.item.json.error;\nconst execution = $input.item.json.execution;\n\n// Try to get user info from the failed execution\nlet chat_id = null;\nlet user_id = null;\n\n// Look for chat_id and user_id in execution data\nif (execution && execution.data && execution.data.resultData) {\n  const runData = execution.data.resultData.runData;\n  \n  // Search through nodes for user data\n  for (const nodeName in runData) {\n    const nodeData = runData[nodeName];\n    if (nodeData && nodeData[0] && nodeData[0].data) {\n      const mainData = nodeData[0].data.main[0];\n      if (mainData && mainData[0] && mainData[0].json) {\n        const json = mainData[0].json;\n        if (json.chat_id) chat_id = json.chat_id;\n        if (json.user_id) user_id = json.user_id;\n        if (chat_id && user_id) break;\n      }\n    }\n  }\n}\n\nconst errorDetails = {\n  message: error.message || 'Unknown error',\n  type: error.name || 'Error',\n  stack: error.stack ? error.stack.substring(0, 500) : 'No stack trace',\n  timestamp: new Date().toISOString(),\n  workflow: execution?.workflowData?.name || 'Unknown workflow',\n  node: error.node?.name || 'Unknown node',\n  chat_id,\n  user_id\n};\n\n// Determine error category\nlet errorCategory = 'unknown';\nlet userMessage = 'Oops! Something went wrong. Please try again with /start';\n\nif (error.message) {\n  const msg = error.message.toLowerCase();\n  \n  if (msg.includes('timeout') || msg.includes('timed out')) {\n    errorCategory = 'timeout';\n    userMessage = 'Sorry, the request took too long. Please try again! ⏱️';\n  } else if (msg.includes('rate limit') || msg.includes('too many requests')) {\n    errorCategory = 'rate_limit';\n    userMessage = 'Whoa, slow down! You\\'ve reached the story limit for now. Please try again in a bit! 🐢';\n  } else if (msg.includes('api') || msg.includes('anthropic')) {\n    errorCategory = 'api_error';\n    userMessage = 'Our story generator is taking a quick nap. Please try again in a moment! 😴';\n  } else if (msg.includes('database') || msg.includes('supabase')) {\n    errorCategory = 'database_error';\n    userMessage = 'We\\'re having trouble saving your story. Please try again! 💾';\n  }\n}\n\nreturn {\n  json: {\n    ...errorDetails,\n    errorCategory,\n    userMessage,\n    shouldNotifyUser: chat_id !== null\n  }\n};"
+      },
+      "id": "analyze-error",
+      "name": "Analyze Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log error to console (in production, send to logging service)\nconst errorData = $input.first().json;\n\nconsole.error('=== STORY BOT ERROR ==');\nconsole.error('Timestamp:', errorData.timestamp);\nconsole.error('Category:', errorData.errorCategory);\nconsole.error('Message:', errorData.message);\nconsole.error('Node:', errorData.node);\nconsole.error('User ID:', errorData.user_id);\nconsole.error('Chat ID:', errorData.chat_id);\nconsole.error('Stack:', errorData.stack);\nconsole.error('=======================');\n\nreturn { json: errorData };"
+      },
+      "id": "log-error",
+      "name": "Log Error Details",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.shouldNotifyUser }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "should-notify",
+      "name": "Should Notify User?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [840, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE conversation_states\\nSET state = 'idle', current_question = 0, answers = '{}'::jsonb, updated_at = NOW()\\nWHERE chat_id = {{ $json.chat_id }} AND user_id = {{ $json.user_id }}"
+      },
+      "id": "reset-state-error",
+      "name": "Reset User State",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1040, 200],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-story-bot",
+          "name": "Supabase Story Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.userMessage }}"
+      },
+      "id": "send-error-message",
+      "name": "Send Error Message to User",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [1240, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-story-bot",
+          "name": "Telegram Story Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO usage_metrics (user_id, action, created_at)\\nVALUES ({{ $json.user_id || 0 }}, 'error_occurred', NOW())"
+      },
+      "id": "log-error-metric",
+      "name": "Log Error Metric",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1040, 400],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-story-bot",
+          "name": "Supabase Story Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Analyze Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Error": {
+      "main": [
+        [
+          {
+            "node": "Log Error Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error Details": {
+      "main": [
+        [
+          {
+            "node": "Should Notify User?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Notify User?": {
+      "main": [
+        [
+          {
+            "node": "Reset User State",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Error Metric",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reset User State": {
+      "main": [
+        [
+          {
+            "node": "Send Error Message to User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2026-01-09T00:00:00.000Z",
+  "versionId": "1.0.0"
+}

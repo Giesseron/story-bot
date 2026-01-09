@@ -1,0 +1,623 @@
+{
+  "name": "Telegram Story Bot - Main",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "story-bot",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Telegram Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "story-bot-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract message data from Telegram update\nconst body = $input.item.json.body || $input.item.json;\n\n// Handle different update types\nconst message = body.message || body.edited_message;\n\nif (!message) {\n  return {\n    json: {\n      error: 'No message found in update',\n      update: body\n    }\n  };\n}\n\nconst chat_id = message.chat.id;\nconst user_id = message.from.id;\nconst text = (message.text || '').trim();\nconst message_id = message.message_id;\nconst username = message.from.username || message.from.first_name || 'User';\n\nreturn {\n  json: {\n    chat_id,\n    user_id,\n    text,\n    message_id,\n    username,\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "extract-message",
+      "name": "Extract Message Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.text }}",
+                    "rightValue": "/start",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "start_command"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.text }}",
+                    "rightValue": "/cancel",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "cancel_command"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.text }}",
+                    "rightValue": "/help",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "help_command"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.text }}",
+                    "rightValue": "story",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "story_keyword"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "command-router",
+      "name": "Command Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM conversation_states WHERE chat_id = {{ $json.chat_id }} AND user_id = {{ $json.user_id }} LIMIT 1"
+      },
+      "id": "get-user-state",
+      "name": "Get User State",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [840, 500],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-story-bot",
+          "name": "Supabase Story Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// State machine logic\nconst STATES = {\n  IDLE: 'idle',\n  AWAITING_CHARACTER: 'awaiting_character',\n  AWAITING_LOCATION: 'awaiting_location',\n  AWAITING_TOPIC: 'awaiting_topic',\n  AWAITING_PROBLEM: 'awaiting_problem',\n  AWAITING_ENDING: 'awaiting_ending',\n  GENERATING: 'generating'\n};\n\nconst QUESTIONS = [\n  {\n    id: 1,\n    state: STATES.AWAITING_CHARACTER,\n    question: \"Who should be the main character? 🌟\\n\\n(e.g., a brave knight, a curious cat, a friendly dragon)\",\n    answer_key: 'character'\n  },\n  {\n    id: 2,\n    state: STATES.AWAITING_LOCATION,\n    question: \"Where does the story take place? 🗺️\\n\\n(e.g., enchanted forest, underwater kingdom, space station)\",\n    answer_key: 'location'\n  },\n  {\n    id: 3,\n    state: STATES.AWAITING_TOPIC,\n    question: \"What should the story be about? 📖\\n\\n(e.g., friendship, adventure, learning something new)\",\n    answer_key: 'topic'\n  },\n  {\n    id: 4,\n    state: STATES.AWAITING_PROBLEM,\n    question: \"What challenge should the character face? 🎯\\n\\n(e.g., finding a lost item, helping a friend, overcoming a fear)\",\n    answer_key: 'problem'\n  },\n  {\n    id: 5,\n    state: STATES.AWAITING_ENDING,\n    question: \"How should the story end? ✨\\n\\n(e.g., happy celebration, peaceful rest, exciting discovery)\",\n    answer_key: 'ending'\n  }\n];\n\n// Get current state from database or set to idle\nconst dbResult = $input.first().json;\nconst messageData = $('Extract Message Data').first().json;\n\nlet currentState = STATES.IDLE;\nlet answers = {};\nlet currentQuestion = 0;\n\n// Check if user exists in database\nif (dbResult && Array.isArray(dbResult) && dbResult.length > 0) {\n  const userState = dbResult[0];\n  currentState = userState.state || STATES.IDLE;\n  answers = userState.answers || {};\n  currentQuestion = userState.current_question || 0;\n} else if (dbResult && dbResult.state) {\n  currentState = dbResult.state || STATES.IDLE;\n  answers = dbResult.answers || {};\n  currentQuestion = dbResult.current_question || 0;\n}\n\n// State transitions\nconst stateFlow = {\n  [STATES.IDLE]: {\n    nextState: STATES.AWAITING_CHARACTER,\n    nextQuestion: QUESTIONS[0]\n  },\n  [STATES.AWAITING_CHARACTER]: {\n    nextState: STATES.AWAITING_LOCATION,\n    nextQuestion: QUESTIONS[1],\n    answer_key: 'character'\n  },\n  [STATES.AWAITING_LOCATION]: {\n    nextState: STATES.AWAITING_TOPIC,\n    nextQuestion: QUESTIONS[2],\n    answer_key: 'location'\n  },\n  [STATES.AWAITING_TOPIC]: {\n    nextState: STATES.AWAITING_PROBLEM,\n    nextQuestion: QUESTIONS[3],\n    answer_key: 'topic'\n  },\n  [STATES.AWAITING_PROBLEM]: {\n    nextState: STATES.AWAITING_ENDING,\n    nextQuestion: QUESTIONS[4],\n    answer_key: 'problem'\n  },\n  [STATES.AWAITING_ENDING]: {\n    nextState: STATES.GENERATING,\n    nextQuestion: null,\n    answer_key: 'ending'\n  }\n};\n\n// Save answer if in answering state\nconst userText = messageData.text;\nif (currentState !== STATES.IDLE && currentState !== STATES.GENERATING) {\n  const transition = stateFlow[currentState];\n  if (transition && transition.answer_key && userText) {\n    answers[transition.answer_key] = userText;\n    currentQuestion++;\n  }\n}\n\n// Get next state and question\nconst nextTransition = stateFlow[currentState];\nconst nextState = nextTransition ? nextTransition.nextState : STATES.IDLE;\nconst nextQuestion = nextTransition ? nextTransition.nextQuestion : null;\nconst shouldGenerate = nextState === STATES.GENERATING;\n\nreturn {\n  json: {\n    chat_id: messageData.chat_id,\n    user_id: messageData.user_id,\n    currentState,\n    nextState,\n    nextQuestion: nextQuestion ? nextQuestion.question : null,\n    currentQuestion,\n    answers,\n    shouldGenerate,\n    username: messageData.username\n  }\n};"
+      },
+      "id": "state-machine",
+      "name": "State Machine Logic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1040, 500]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversation_states (chat_id, user_id, state, current_question, answers, updated_at)\nVALUES ({{ $json.chat_id }}, {{ $json.user_id }}, '{{ $json.nextState }}', {{ $json.currentQuestion }}, '{{ JSON.stringify($json.answers) }}'::jsonb, NOW())\nON CONFLICT (chat_id, user_id)\nDO UPDATE SET\n  state = '{{ $json.nextState }}',\n  current_question = {{ $json.currentQuestion }},\n  answers = '{{ JSON.stringify($json.answers) }}'::jsonb,\n  updated_at = NOW()\nRETURNING *"
+      },
+      "id": "update-state",
+      "name": "Update User State",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1240, 500],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-story-bot",
+          "name": "Supabase Story Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.shouldGenerate }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "should-generate",
+      "name": "Should Generate Story?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1440, 500]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.nextQuestion }}"
+      },
+      "id": "send-question",
+      "name": "Send Next Question",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [1640, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-story-bot",
+          "name": "Telegram Story Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare Claude API prompt for story generation\nconst answers = $json.answers;\n\nconst systemPrompt = `You are a creative children's story writer. Generate a warm, age-appropriate bedtime story (6-8 sentences) that is gentle, positive, and suitable for children ages 3-10.\n\nEnsure the story:\n- Has a clear beginning, middle, and end\n- Uses simple, engaging language\n- Includes a positive message or lesson\n- Is calming and suitable for bedtime\n- Contains no scary, violent, or inappropriate content\n- Flows naturally and engagingly\n- Ends on a peaceful, comforting note`;\n\nconst userPrompt = `Create a bedtime story with these elements:\n\n- Main character: ${answers.character}\n- Setting: ${answers.location}\n- Theme: ${answers.topic}\n- Challenge: ${answers.problem}\n- Ending: ${answers.ending}\n\nWrite a gentle, engaging bedtime story (6-8 sentences) that brings these elements together in a cohesive, magical tale.`;\n\nreturn {\n  json: {\n    chat_id: $json.chat_id,\n    user_id: $json.user_id,\n    username: $json.username,\n    systemPrompt,\n    userPrompt,\n    answers,\n    model: 'claude-3-5-sonnet-20241022',\n    max_tokens: 1024,\n    temperature: 0.7\n  }\n};"
+      },
+      "id": "prepare-prompt",
+      "name": "Prepare Claude Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1640, 600]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"{{ $json.model }}\",\n  \"max_tokens\": {{ $json.max_tokens }},\n  \"temperature\": {{ $json.temperature }},\n  \"system\": {{ JSON.stringify($json.systemPrompt) }},\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify($json.userPrompt) }}\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "call-claude",
+      "name": "Call Claude API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1840, 600],
+      "credentials": {
+        "anthropicApi": {
+          "id": "claude-api",
+          "name": "Claude API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract story from Claude response\nconst claudeResponse = $input.first().json;\nconst promptData = $('Prepare Claude Prompt').first().json;\n\nlet story = '';\nlet tokensUsed = 0;\n\nif (claudeResponse.content && claudeResponse.content[0]) {\n  story = claudeResponse.content[0].text;\n}\n\nif (claudeResponse.usage) {\n  tokensUsed = (claudeResponse.usage.input_tokens || 0) + (claudeResponse.usage.output_tokens || 0);\n}\n\n// Calculate approximate cost (Claude 3.5 Sonnet pricing)\nconst inputTokens = claudeResponse.usage?.input_tokens || 0;\nconst outputTokens = claudeResponse.usage?.output_tokens || 0;\nconst costUSD = (inputTokens * 0.003 / 1000) + (outputTokens * 0.015 / 1000);\n\nreturn {\n  json: {\n    chat_id: promptData.chat_id,\n    user_id: promptData.user_id,\n    story,\n    answers: promptData.answers,\n    tokensUsed,\n    inputTokens,\n    outputTokens,\n    costUSD: costUSD.toFixed(6),\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "extract-story",
+      "name": "Extract Story Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2040, 600]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO generated_stories (chat_id, user_id, story_text, answers, created_at)\nVALUES ({{ $json.chat_id }}, {{ $json.user_id }}, {{ JSON.stringify($json.story) }}, '{{ JSON.stringify($json.answers) }}'::jsonb, NOW())\nRETURNING *"
+      },
+      "id": "save-story",
+      "name": "Save Story to Database",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [2240, 600],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-story-bot",
+          "name": "Supabase Story Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO usage_metrics (user_id, action, tokens_used, cost_usd, created_at)\nVALUES ({{ $json.user_id }}, 'story_generated', {{ $json.tokensUsed }}, {{ $json.costUSD }}, NOW())"
+      },
+      "id": "log-usage",
+      "name": "Log Usage Metrics",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [2240, 700],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-story-bot",
+          "name": "Supabase Story Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE conversation_states\nSET state = 'idle', current_question = 0, answers = '{}'::jsonb, updated_at = NOW()\nWHERE chat_id = {{ $json.chat_id }} AND user_id = {{ $json.user_id }}"
+      },
+      "id": "reset-state",
+      "name": "Reset User State",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [2440, 600],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-story-bot",
+          "name": "Supabase Story Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "=🌙 Here's your personalized bedtime story! 🌙\\n\\n{{ $json.story }}\\n\\n✨ Sweet dreams! ✨\\n\\nWant another story? Just send \"I want a story\" or /start!"
+      },
+      "id": "send-story",
+      "name": "Send Story to User",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [2640, 600],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-story-bot",
+          "name": "Telegram Story Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=OK"
+      },
+      "id": "webhook-response",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2840, 500]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE conversation_states\nSET state = 'idle', current_question = 0, answers = '{}'::jsonb, updated_at = NOW()\nWHERE chat_id = {{ $json.chat_id }} AND user_id = {{ $json.user_id }}"
+      },
+      "id": "cancel-reset",
+      "name": "Cancel - Reset State",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [840, 200],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-story-bot",
+          "name": "Supabase Story Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "Story cancelled! ❌\\n\\nNo worries! When you're ready for a magical bedtime story, just send /start or say \\\"I want a story\\\"! 🌙"
+      },
+      "id": "send-cancel",
+      "name": "Send Cancel Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [1040, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-story-bot",
+          "name": "Telegram Story Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "🌟 Bedtime Story Generator Bot 🌟\\n\\nI create personalized bedtime stories just for you!\\n\\n**How to use:**\\n1. Send \\\"I want a story\\\" or /start\\n2. Answer 5 simple questions\\n3. Get your custom magical story!\\n\\n**Commands:**\\n/start - Begin a new story\\n/cancel - Cancel current story\\n/help - Show this help message\\n\\nLet's create something magical together! ✨"
+      },
+      "id": "send-help",
+      "name": "Send Help Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [840, 100],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-story-bot",
+          "name": "Telegram Story Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Message Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Message Data": {
+      "main": [
+        [
+          {
+            "node": "Command Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Command Router": {
+      "main": [
+        [
+          {
+            "node": "Get User State",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cancel - Reset State",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Help Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get User State",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get User State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get User State": {
+      "main": [
+        [
+          {
+            "node": "State Machine Logic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "State Machine Logic": {
+      "main": [
+        [
+          {
+            "node": "Update User State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update User State": {
+      "main": [
+        [
+          {
+            "node": "Should Generate Story?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Generate Story?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Claude Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Next Question",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Next Question": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Claude Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call Claude API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Claude API": {
+      "main": [
+        [
+          {
+            "node": "Extract Story Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Story Text": {
+      "main": [
+        [
+          {
+            "node": "Save Story to Database",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Usage Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Story to Database": {
+      "main": [
+        [
+          {
+            "node": "Reset User State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reset User State": {
+      "main": [
+        [
+          {
+            "node": "Send Story to User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Story to User": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel - Reset State": {
+      "main": [
+        [
+          {
+            "node": "Send Cancel Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Cancel Message": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Help Message": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2026-01-09T00:00:00.000Z",
+  "versionId": "1.0.0"
+}
