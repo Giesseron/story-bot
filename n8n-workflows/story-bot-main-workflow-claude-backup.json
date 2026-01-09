@@ -1,5 +1,5 @@
 {
-  "name": "Telegram Story Bot - Main (Gemini)",
+  "name": "Telegram Story Bot - Main",
   "nodes": [
     {
       "parameters": {
@@ -201,10 +201,10 @@
     },
     {
       "parameters": {
-        "jsCode": "// Prepare Gemini API request for story generation\nconst answers = $json.answers;\n\nconst systemInstruction = `You are a creative children's story writer. Generate a warm, age-appropriate bedtime story (6-8 sentences) that is gentle, positive, and suitable for children ages 3-10.\n\nEnsure the story:\n- Has a clear beginning, middle, and end\n- Uses simple, engaging language\n- Includes a positive message or lesson\n- Is calming and suitable for bedtime\n- Contains no scary, violent, or inappropriate content\n- Flows naturally and engagingly\n- Ends on a peaceful, comforting note`;\n\nconst userPrompt = `Create a bedtime story with these elements:\n\n- Main character: ${answers.character}\n- Setting: ${answers.location}\n- Theme: ${answers.topic}\n- Challenge: ${answers.problem}\n- Ending: ${answers.ending}\n\nWrite a gentle, engaging bedtime story (6-8 sentences) that brings these elements together in a cohesive, magical tale.`;\n\nreturn {\n  json: {\n    chat_id: $json.chat_id,\n    user_id: $json.user_id,\n    username: $json.username,\n    systemInstruction,\n    userPrompt,\n    answers,\n    model: 'gemini-1.5-flash'\n  }\n};"
+        "jsCode": "// Prepare Claude API prompt for story generation\nconst answers = $json.answers;\n\nconst systemPrompt = `You are a creative children's story writer. Generate a warm, age-appropriate bedtime story (6-8 sentences) that is gentle, positive, and suitable for children ages 3-10.\n\nEnsure the story:\n- Has a clear beginning, middle, and end\n- Uses simple, engaging language\n- Includes a positive message or lesson\n- Is calming and suitable for bedtime\n- Contains no scary, violent, or inappropriate content\n- Flows naturally and engagingly\n- Ends on a peaceful, comforting note`;\n\nconst userPrompt = `Create a bedtime story with these elements:\n\n- Main character: ${answers.character}\n- Setting: ${answers.location}\n- Theme: ${answers.topic}\n- Challenge: ${answers.problem}\n- Ending: ${answers.ending}\n\nWrite a gentle, engaging bedtime story (6-8 sentences) that brings these elements together in a cohesive, magical tale.`;\n\nreturn {\n  json: {\n    chat_id: $json.chat_id,\n    user_id: $json.user_id,\n    username: $json.username,\n    systemPrompt,\n    userPrompt,\n    answers,\n    model: 'claude-3-5-sonnet-20241022',\n    max_tokens: 1024,\n    temperature: 0.7\n  }\n};"
       },
       "id": "prepare-prompt",
-      "name": "Prepare Gemini Prompt",
+      "name": "Prepare Claude Prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [1640, 600]
@@ -212,29 +212,38 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://generativelanguage.googleapis.com/v1beta/models/{{ $json.model }}:generateContent",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpQueryAuth",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"contents\": [{\n    \"parts\": [{\n      \"text\": {{ JSON.stringify($json.userPrompt) }}\n    }]\n  }],\n  \"systemInstruction\": {\n    \"parts\": [{\n      \"text\": {{ JSON.stringify($json.systemInstruction) }}\n    }]\n  },\n  \"generationConfig\": {\n    \"temperature\": 0.9,\n    \"topK\": 40,\n    \"topP\": 0.95,\n    \"maxOutputTokens\": 1024\n  }\n}",
+        "jsonBody": "={\n  \"model\": \"{{ $json.model }}\",\n  \"max_tokens\": {{ $json.max_tokens }},\n  \"temperature\": {{ $json.temperature }},\n  \"system\": {{ JSON.stringify($json.systemPrompt) }},\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify($json.userPrompt) }}\n    }\n  ]\n}",
         "options": {}
       },
-      "id": "call-gemini",
-      "name": "Call Gemini API",
+      "id": "call-claude",
+      "name": "Call Claude API",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [1840, 600],
       "credentials": {
-        "httpQueryAuth": {
-          "id": "gemini-api",
-          "name": "Gemini API Key"
+        "anthropicApi": {
+          "id": "claude-api",
+          "name": "Claude API"
         }
       }
     },
     {
       "parameters": {
-        "jsCode": "// Extract story from Gemini response\nconst geminiResponse = $input.first().json;\nconst promptData = $('Prepare Gemini Prompt').first().json;\n\nlet story = '';\nlet tokensUsed = 0;\nlet inputTokens = 0;\nlet outputTokens = 0;\n\n// Extract story text from Gemini response\nif (geminiResponse.candidates && geminiResponse.candidates[0]) {\n  const candidate = geminiResponse.candidates[0];\n  if (candidate.content && candidate.content.parts && candidate.content.parts[0]) {\n    story = candidate.content.parts[0].text;\n  }\n}\n\n// Extract token usage\nif (geminiResponse.usageMetadata) {\n  inputTokens = geminiResponse.usageMetadata.promptTokenCount || 0;\n  outputTokens = geminiResponse.usageMetadata.candidatesTokenCount || 0;\n  tokensUsed = inputTokens + outputTokens;\n}\n\n// Calculate approximate cost (Gemini 1.5 Flash pricing)\n// Input: $0.075 per 1M tokens = $0.000000075 per token\n// Output: $0.30 per 1M tokens = $0.0000003 per token\nconst costUSD = (inputTokens * 0.000000075) + (outputTokens * 0.0000003);\n\nreturn {\n  json: {\n    chat_id: promptData.chat_id,\n    user_id: promptData.user_id,\n    story,\n    answers: promptData.answers,\n    tokensUsed,\n    inputTokens,\n    outputTokens,\n    costUSD: costUSD.toFixed(6),\n    timestamp: new Date().toISOString()\n  }\n};"
+        "jsCode": "// Extract story from Claude response\nconst claudeResponse = $input.first().json;\nconst promptData = $('Prepare Claude Prompt').first().json;\n\nlet story = '';\nlet tokensUsed = 0;\n\nif (claudeResponse.content && claudeResponse.content[0]) {\n  story = claudeResponse.content[0].text;\n}\n\nif (claudeResponse.usage) {\n  tokensUsed = (claudeResponse.usage.input_tokens || 0) + (claudeResponse.usage.output_tokens || 0);\n}\n\n// Calculate approximate cost (Claude 3.5 Sonnet pricing)\nconst inputTokens = claudeResponse.usage?.input_tokens || 0;\nconst outputTokens = claudeResponse.usage?.output_tokens || 0;\nconst costUSD = (inputTokens * 0.003 / 1000) + (outputTokens * 0.015 / 1000);\n\nreturn {\n  json: {\n    chat_id: promptData.chat_id,\n    user_id: promptData.user_id,\n    story,\n    answers: promptData.answers,\n    tokensUsed,\n    inputTokens,\n    outputTokens,\n    costUSD: costUSD.toFixed(6),\n    timestamp: new Date().toISOString()\n  }\n};"
       },
       "id": "extract-story",
       "name": "Extract Story Text",
@@ -472,7 +481,7 @@
       "main": [
         [
           {
-            "node": "Prepare Gemini Prompt",
+            "node": "Prepare Claude Prompt",
             "type": "main",
             "index": 0
           }
@@ -497,18 +506,18 @@
         ]
       ]
     },
-    "Prepare Gemini Prompt": {
+    "Prepare Claude Prompt": {
       "main": [
         [
           {
-            "node": "Call Gemini API",
+            "node": "Call Claude API",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Call Gemini API": {
+    "Call Claude API": {
       "main": [
         [
           {
@@ -610,5 +619,5 @@
   "tags": [],
   "triggerCount": 0,
   "updatedAt": "2026-01-09T00:00:00.000Z",
-  "versionId": "2.0.0-gemini"
+  "versionId": "1.0.0"
 }
